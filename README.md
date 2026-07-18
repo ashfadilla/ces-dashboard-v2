@@ -1,6 +1,6 @@
 ## CES Dashboard Monitoring System (V2)
 
-This project is still under development! 🚧
+((This project is still under development!!))
 
 This is the 2nd version of the CES Dashboard Monitoring System. It builds on the previous version, and my contribution is adding a new IoT monitoring module for mushroom cultivation using ESP32 and Laravel.
 
@@ -27,10 +27,10 @@ Right now, I'm mainly working on the mushroom cultivation module, which includes
 
 ### Future Plans
 
-Still working on 😅
+Still a lot to work on 😅
 
-- Solar-powered IoT system
-- Better dashboard UI
+- Adding a solar-powered IoT system
+- Improving the dashboard UI
 - Notifications & alerts
 
-Hopefully this project keeps getting better along the way 🚀
+More updates coming soon in "CES Dashboard Monitoring System V3"!
