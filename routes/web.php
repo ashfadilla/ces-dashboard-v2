@@ -26,6 +26,8 @@ Route::get('dashboard/lab/data', [labDashboardController::class, 'getDashboardDa
 Route::get('dashboard/lab/chart/{data}', [labDashboardController::class, 'chartData']);
 Route::get('dashboard/lab/heatMap', [labDashboardController::class, 'heatMapData']);
 
- Route::get('dashboard/jamur', [jamurDashboardController::class, 'index'])->name("dashboard.jamur");
- Route::get('dashboard/jamur/data', [jamurDashboardController::class, 'getDashboardData']);
- Route::get('dashboard/jamur/chart/{data}', [jamurDashboardController::class, 'chartData']);
+Route::get('dashboard/jamur', [jamurDashboardController::class, 'index'])->name("dashboard.jamur");
+Route::get('dashboard/jamur/data', [jamurDashboardController::class, 'getDashboardData']);
+Route::get('dashboard/jamur/export', [jamurDashboardController::class, 'exportCsv']);
+Route::get('dashboard/jamur/chart/{data}', [jamurDashboardController::class, 'chartData']);
+
