@@ -4,43 +4,95 @@ namespace App\Http\Controllers;
 
 use App\Models\Jamur;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 
 class jamurDashboardController extends Controller
 {
+    // Rentang ideal budidaya jamur tiram
+    const SUHU_MIN = 22;
+    const SUHU_MAX = 28;
+    const RH_MIN   = 80;
+    const RH_MAX   = 90;
+
     /**
-     * Ambil data terbaru + tambahan info status (online/offline, relay, mode).
-     * Meniru pola getLatestData() milik labDashboardController.
+     * Ambil data terbaru + hitung status kondisi & saran tindakan.
      */
     function getLatestData(): mixed
     {
         $latest = Jamur::getLatestData();
 
-        // Belum ada data sama sekali
         if (!$latest) {
             return null;
         }
 
-        // Status online/offline berdasarkan selisih waktu data terakhir
+        // ---- Status online / offline ----
         if ($latest->created_at) {
             $timeDif = $latest->created_at->diffInSeconds(Carbon::now());
             $latest->online_status = $timeDif > 300 ? "Offline" : "Online";
+            $latest->waktu_update  = $latest->created_at->format('H:i, d M Y');
         } else {
             $latest->online_status = "Offline";
+            $latest->waktu_update  = "-";
         }
 
         $latest->status_message = $latest->online_status === "Online"
-            ? "Perangkat IoT terhubung ke server dengan normal"
-            : "Koneksi perangkat IoT dan server terputus";
+            ? "Alat terhubung, data diperbarui otomatis"
+            : "Alat tidak mengirim data lebih dari 5 menit";
 
-        // Teks status pengabutan
-        $latest->relay_text = $latest->status_relay ? "Pengabutan Aktif" : "Pengabutan Mati";
+        $suhu = $latest->suhu_node1;
+        $rh   = $latest->kelembaban_node1;
 
-        // Rata-rata suhu 2 node (abaikan yang null)
-        $suhu = array_filter([$latest->suhu_node1, $latest->suhu_node2], fn($v) => $v !== null);
-        $latest->suhu_rata = count($suhu) ? round(array_sum($suhu) / count($suhu), 1) : 0;
+        // ---- Status suhu ----
+        if ($suhu === null) {
+            $latest->suhu_status = "-";
+            $latest->suhu_warna  = "abu";
+        } elseif ($suhu > self::SUHU_MAX) {
+            $latest->suhu_status = "Terlalu Panas";
+            $latest->suhu_warna  = "merah";
+        } elseif ($suhu < self::SUHU_MIN) {
+            $latest->suhu_status = "Terlalu Dingin";
+            $latest->suhu_warna  = "biru";
+        } else {
+            $latest->suhu_status = "Ideal";
+            $latest->suhu_warna  = "hijau";
+        }
 
-        $lembab = array_filter([$latest->kelembaban_node1, $latest->kelembaban_node2], fn($v) => $v !== null);
-        $latest->kelembaban_rata = count($lembab) ? round(array_sum($lembab) / count($lembab)) : 0;
+        // ---- Status kelembaban ----
+        if ($rh === null) {
+            $latest->rh_status = "-";
+            $latest->rh_warna  = "abu";
+        } elseif ($rh < self::RH_MIN) {
+            $latest->rh_status = "Terlalu Kering";
+            $latest->rh_warna  = "oranye";
+        } elseif ($rh > self::RH_MAX) {
+            $latest->rh_status = "Terlalu Lembap";
+            $latest->rh_warna  = "biru";
+        } else {
+            $latest->rh_status = "Ideal";
+            $latest->rh_warna  = "hijau";
+        }
+
+        // ---- Saran tindakan (penyemprotan manual) ----
+        if ($rh === null) {
+            $latest->saran        = "Menunggu data";
+            $latest->saran_detail = "Belum ada pembacaan sensor";
+            $latest->saran_warna  = "abu";
+        } elseif ($rh < self::RH_MIN) {
+            $latest->saran        = "Perlu Disemprot";
+            $latest->saran_detail = "Kelembaban di bawah 80%, segera semprot kumbung";
+            $latest->saran_warna  = "oranye";
+        } elseif ($rh > self::RH_MAX) {
+            $latest->saran        = "Jangan Disemprot";
+            $latest->saran_detail = "Kelembaban sudah di atas 90%, cukup dulu";
+            $latest->saran_warna  = "biru";
+        } else {
+            $latest->saran        = "Belum Perlu";
+            $latest->saran_detail = "Kelembaban masih ideal, belum perlu disemprot";
+            $latest->saran_warna  = "hijau";
+        }
+
+        // ---- Kesimpulan keseluruhan ----
+        $latest->kondisi_ideal = ($latest->suhu_status === "Ideal" && $latest->rh_status === "Ideal");
 
         return $latest;
     }
@@ -52,7 +104,7 @@ class jamurDashboardController extends Controller
         return view('jamur-dashboard', compact('latest'));
     }
 
-    // Endpoint AJAX: angka terbaru (dipanggil JavaScript tiap beberapa detik)
+    // Endpoint AJAX: angka terbaru
     public function getDashboardData()
     {
         return response()->json([
@@ -60,16 +112,16 @@ class jamurDashboardController extends Controller
         ]);
     }
 
-    // Endpoint AJAX: data grafik (suhu atau kelembaban) untuk hari terbaru
+    // Endpoint AJAX: data grafik
     public function chartData($data)
     {
         $data_select = [
-            "suhu"       => ["suhu_node1", "suhu_node2", "created_at"],
-            "kelembaban" => ["kelembaban_node1", "kelembaban_node2", "created_at"],
+            "suhu"       => ["suhu_node1", "created_at"],
+            "kelembaban" => ["kelembaban_node1", "created_at"],
+            "semua"      => ["suhu_node1", "kelembaban_node1", "created_at"],
         ];
 
-        // fallback kalau parameter tidak dikenal
-        $columns = $data_select[$data] ?? $data_select["suhu"];
+        $columns = $data_select[$data] ?? $data_select["semua"];
 
         $latestDate = Jamur::max("created_at");
         $latestDate = $latestDate ? date('Y-m-d', strtotime($latestDate)) : now()->format('Y-m-d');
@@ -78,8 +130,80 @@ class jamurDashboardController extends Controller
             ->whereDate("created_at", $latestDate)
             ->get();
 
-        return response()->json([
-            "data" => $chart
-        ]);
+        return response()->json(["data" => $chart]);
+    }
+
+    /**
+     * Export seluruh data jamur ke file CSV.
+     */
+    public function exportCsv(Request $request)
+    {
+        // Rentang tanggal opsional: ?start=YYYY-MM-DD&end=YYYY-MM-DD
+        $start = $request->query('start');
+        $end   = $request->query('end');
+
+        $namaRentang = ($start || $end)
+            ? '_' . ($start ?: 'awal') . '_sd_' . ($end ?: 'akhir')
+            : '_semua';
+
+        $filename = 'data_jamur' . $namaRentang . '.csv';
+
+        $headers = [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"$filename\"",
+            'Pragma'              => 'no-cache',
+            'Expires'             => '0',
+        ];
+
+        $callback = function () use ($start, $end) {
+            $file = fopen('php://output', 'w');
+
+            // BOM agar karakter Indonesia terbaca benar di Excel
+            fprintf($file, chr(0xEF) . chr(0xBB) . chr(0xBF));
+
+            fputcsv($file, [
+                'No', 'Tanggal', 'Waktu', 'Suhu (C)', 'Kelembaban (%)',
+                'Status Suhu', 'Status Kelembaban', 'Saran'
+            ]);
+
+            $no = 1;
+            $query = Jamur::orderBy('created_at', 'asc');
+            if ($start) { $query->whereDate('created_at', '>=', $start); }
+            if ($end)   { $query->whereDate('created_at', '<=', $end); }
+
+            $query->chunk(500, function ($rows) use ($file, &$no) {
+                foreach ($rows as $r) {
+                    $suhu = $r->suhu_node1;
+                    $rh   = $r->kelembaban_node1;
+
+                    $sSuhu = $suhu === null ? '-'
+                        : ($suhu > self::SUHU_MAX ? 'Terlalu Panas'
+                        : ($suhu < self::SUHU_MIN ? 'Terlalu Dingin' : 'Ideal'));
+
+                    $sRh = $rh === null ? '-'
+                        : ($rh < self::RH_MIN ? 'Terlalu Kering'
+                        : ($rh > self::RH_MAX ? 'Terlalu Lembap' : 'Ideal'));
+
+                    $saran = $rh === null ? '-'
+                        : ($rh < self::RH_MIN ? 'Perlu Disemprot'
+                        : ($rh > self::RH_MAX ? 'Jangan Disemprot' : 'Belum Perlu'));
+
+                    fputcsv($file, [
+                        $no++,
+                        $r->created_at ? $r->created_at->format('d/m/Y') : '-',
+                        $r->created_at ? $r->created_at->format('H:i:s') : '-',
+                        $suhu ?? '-',
+                        $rh ?? '-',
+                        $sSuhu,
+                        $sRh,
+                        $saran,
+                    ]);
+                }
+            });
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
     }
 }
